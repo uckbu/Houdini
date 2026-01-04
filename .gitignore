@@ -1,0 +1,21 @@
+# Build artifacts
+.build/
+.swiftpm/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+*.dSYM
+
+# Temporary files
+AppIcon.iconset/
+*.log
+
+# IDE
+.vscode/
+.idea/
