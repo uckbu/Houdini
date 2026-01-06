@@ -6,18 +6,15 @@ class HotKeyManager {
     
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
+    private var currentHotKeyID: UInt32 = 1
     
     var onHotKeyTriggered: (() -> Void)?
     
-    private init() {}
+    private init() {
+        installEventHandler()
+    }
     
-    func register(keyCode: UInt32, modifiers: UInt32) {
-        unregister()
-        
-        var hotKeyID = EventHotKeyID()
-        hotKeyID.signature = fourCharCode("CHDR")
-        hotKeyID.id = 1
-        
+    private func installEventHandler() {
         var eventType = EventTypeSpec()
         eventType.eventClass = OSType(kEventClassKeyboard)
         eventType.eventKind = OSType(kEventHotKeyPressed)
@@ -26,13 +23,29 @@ class HotKeyManager {
         let handler: EventHandlerUPP = { (_, event, userData) -> OSStatus in
             guard let userData = userData else { return OSStatus(eventNotHandledErr) }
             let manager = Unmanaged<HotKeyManager>.fromOpaque(userData).takeUnretainedValue()
-            manager.onHotKeyTriggered?()
-            return noErr
+            
+            var hotKeyID = EventHotKeyID()
+            let status = GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &hotKeyID
+            )
+            
+            if status == noErr && hotKeyID.id == manager.currentHotKeyID {
+                manager.onHotKeyTriggered?()
+                return noErr
+            }
+            
+            return OSStatus(eventNotHandledErr)
         }
         
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
         
-        var status = InstallEventHandler(
+        let status = InstallEventHandler(
             GetApplicationEventTarget(),
             handler,
             1,
@@ -43,11 +56,26 @@ class HotKeyManager {
         
         if status != noErr {
             print("Failed to install event handler: \(status)")
-            return
+        }
+    }
+    
+    func register(keyCode: UInt32, modifiers: UInt32) {
+        // Unregister previous hotkey
+        if let hotKeyRef = hotKeyRef {
+            let status = UnregisterEventHotKey(hotKeyRef)
+            if status != noErr {
+                 print("Failed to unregister hotkey: \(status)")
+            }
+            self.hotKeyRef = nil
         }
         
-        // Register hotkey
-        status = RegisterEventHotKey(
+        currentHotKeyID += 1
+        var hotKeyID = EventHotKeyID()
+        hotKeyID.signature = fourCharCode("CHDR")
+        hotKeyID.id = currentHotKeyID
+        
+        // Register new hotkey
+        let status = RegisterEventHotKey(
             keyCode,
             modifiers,
             hotKeyID,
@@ -59,7 +87,7 @@ class HotKeyManager {
         if status != noErr {
             print("Failed to register hotkey: \(status)")
         } else {
-            print("Hotkey registered (keyCode: \(keyCode), modifiers: \(modifiers))")
+            print("Hotkey registered (keyCode: \(keyCode), modifiers: \(modifiers), id: \(currentHotKeyID))")
         }
     }
     
@@ -68,14 +96,14 @@ class HotKeyManager {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
-        if let eventHandler = eventHandler {
-            RemoveEventHandler(eventHandler)
-            self.eventHandler = nil
-        }
+        // Handler removal is moved to deinit or typically not needed for singleton
     }
     
     deinit {
         unregister()
+        if let eventHandler = eventHandler {
+            RemoveEventHandler(eventHandler)
+        }
     }
 }
 

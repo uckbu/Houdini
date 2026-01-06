@@ -24,12 +24,19 @@ struct HoudiniApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    static private(set) var shared: AppDelegate!
+    
     let cursorManager = CursorManager()
     private var statusItem: NSStatusItem?
     
     // Default hotkey: Command + Option + H
     private var currentKeyCode: UInt32 = 0x04
     private var currentModifiers: UInt32 = UInt32(cmdKey | optionKey)
+    
+    override init() {
+        super.init()
+        AppDelegate.shared = self
+    }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Setup menu bar icon so app persists when window is closed

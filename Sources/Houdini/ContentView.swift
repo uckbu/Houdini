@@ -101,9 +101,8 @@ struct ContentView: View {
     }
     
     func updateHotkeyInAppDelegate() {
-        if let appDelegate = NSApp.delegate as? AppDelegate {
-            appDelegate.updateHotkey(keyCode: currentKeyCode, modifiers: currentModifiers)
-        }
+        print("Updating hotkey to: \(currentKeyCode) mods: \(currentModifiers)")
+        AppDelegate.shared?.updateHotkey(keyCode: currentKeyCode, modifiers: currentModifiers)
     }
 }
 
@@ -113,60 +112,77 @@ struct KeyEventHandler: NSViewRepresentable {
     @Binding var modifiers: UInt32
     @Binding var label: String
     
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
     func makeNSView(context: Context) -> KeyCaptureView {
         let view = KeyCaptureView()
-        view.parent = self
+        view.coordinator = context.coordinator
         return view
     }
     
     func updateNSView(_ nsView: KeyCaptureView, context: Context) {
-        nsView.parent = self
+        context.coordinator.parent = self
         if isRecording {
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }
         }
     }
+    
+    class Coordinator: NSObject {
+        var parent: KeyEventHandler
+        
+        init(_ parent: KeyEventHandler) {
+            self.parent = parent
+        }
+        
+        func handleKeyDown(event: NSEvent) {
+            guard parent.isRecording else { return }
+            
+            // Need at least one modifier for a hotkey
+            let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard !mods.isEmpty else { return }
+            
+            // Convert NSEvent modifiers to Carbon modifiers
+            var carbonModifiers: UInt32 = 0
+            if event.modifierFlags.contains(.command) { carbonModifiers |= UInt32(cmdKey) }
+            if event.modifierFlags.contains(.option) { carbonModifiers |= UInt32(optionKey) }
+            if event.modifierFlags.contains(.control) { carbonModifiers |= UInt32(controlKey) }
+            if event.modifierFlags.contains(.shift) { carbonModifiers |= UInt32(shiftKey) }
+            
+            parent.keyCode = UInt32(event.keyCode)
+            parent.modifiers = carbonModifiers
+            
+            // Generate pretty label with symbols
+            var keys: [String] = []
+            if event.modifierFlags.contains(.control) { keys.append("⌃") }
+            if event.modifierFlags.contains(.option) { keys.append("⌥") }
+            if event.modifierFlags.contains(.shift) { keys.append("⇧") }
+            if event.modifierFlags.contains(.command) { keys.append("⌘") }
+            
+            if let chars = event.charactersIgnoringModifiers?.uppercased(), !chars.isEmpty {
+                keys.append(chars)
+            }
+            
+            parent.label = keys.joined(separator: " ")
+            parent.isRecording = false
+        }
+    }
 }
 
 class KeyCaptureView: NSView {
-    var parent: KeyEventHandler?
+    weak var coordinator: KeyEventHandler.Coordinator?
     
     override var acceptsFirstResponder: Bool { true }
     
     override func keyDown(with event: NSEvent) {
-        guard let parent = parent, parent.isRecording else {
+        if let coordinator = coordinator, coordinator.parent.isRecording {
+            coordinator.handleKeyDown(event: event)
+        } else {
             super.keyDown(with: event)
-            return
         }
-        
-        // Need at least one modifier for a hotkey
-        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        guard !mods.isEmpty else { return }
-        
-        // Convert NSEvent modifiers to Carbon modifiers
-        var carbonModifiers: UInt32 = 0
-        if event.modifierFlags.contains(.command) { carbonModifiers |= UInt32(cmdKey) }
-        if event.modifierFlags.contains(.option) { carbonModifiers |= UInt32(optionKey) }
-        if event.modifierFlags.contains(.control) { carbonModifiers |= UInt32(controlKey) }
-        if event.modifierFlags.contains(.shift) { carbonModifiers |= UInt32(shiftKey) }
-        
-        parent.keyCode = UInt32(event.keyCode)
-        parent.modifiers = carbonModifiers
-        
-        // Generate pretty label with symbols
-        var keys: [String] = []
-        if event.modifierFlags.contains(.control) { keys.append("⌃") }
-        if event.modifierFlags.contains(.option) { keys.append("⌥") }
-        if event.modifierFlags.contains(.shift) { keys.append("⇧") }
-        if event.modifierFlags.contains(.command) { keys.append("⌘") }
-        
-        if let chars = event.charactersIgnoringModifiers?.uppercased(), !chars.isEmpty {
-            keys.append(chars)
-        }
-        
-        parent.label = keys.joined(separator: " ")
-        parent.isRecording = false
     }
 }
 
